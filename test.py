@@ -14,9 +14,9 @@ HH = [[0, 1, 0],
  [1, 0, 1],
  [0, 1, 0]]
 
-GG = [[0.5, 0.3, 0.2],
+GG = [[0.46, 0.3, 0.04],
  [0.3, 0.4, 0.1],
- [0.2, 0.1, 0.6]]
+ [0.04, 0.1, 0.66]]
 
 def compute_t_G_W(H, W_block):
     # Compute t for nxn graphon, brute force n^|V(H)| calculations

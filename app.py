@@ -5,8 +5,16 @@ from decimal import Decimal, getcontext
 import traceback
 import logging
 
-# Import the simpler customgraphhomo package
-from customgraphhomo.counthomo import WeightedGraph, count_homomorphisms
+# Import the custom implementation
+from counthomo import WeightedGraph, count_homomorphisms
+
+# Import CountHomLib for high-performance calculations
+try:
+    from homlib import Graph, Graphon, countHomGraphon
+    COUNTHOMLIB_AVAILABLE = True
+except ImportError:
+    COUNTHOMLIB_AVAILABLE = False
+    print("Warning: CountHomLib not available. Only custom implementation will be used.")
 
 app = Flask(__name__)
 CORS(app)
@@ -35,13 +43,14 @@ def is_valid_probability_matrix(matrix):
     return True
 
 class SidorenkoCalculator:
-    def __init__(self, H_matrix, G_matrix):
+    def __init__(self, H_matrix, G_matrix, use_countHomLib=False):
         """
         Initialize with H (pattern graph) and G (host graph) adjacency matrices.
         
         Args:
             H_matrix: Adjacency matrix for pattern graph H (should be unweighted, all edges = 1)
             G_matrix: Adjacency matrix for host graph G (can be weighted)
+            use_countHomLib: Whether to use CountHomLib or custom implementation
         """
         if not is_symmetric_matrix(H_matrix):
             raise ValueError("H matrix must be symmetric")
@@ -54,87 +63,164 @@ class SidorenkoCalculator:
         self.G_matrix = G_matrix
         self.n_H = len(H_matrix)
         self.n_G = len(G_matrix)
-        
-        # Create WeightedGraph objects using the correct API
-        # For H: unweighted graph (all edge weights = 1, node weights = 1)
-        h_edge_weights = {}
-        for i in range(self.n_H):
-            h_edge_weights[i] = {}
-            for j in range(self.n_H):
-                if H_matrix[i][j] != 0:
-                    h_edge_weights[i][j] = 1.0  # All edges have weight 1
-                else:
-                    h_edge_weights[i][j] = 0.0
-        
-        h_node_weights = {i: 1.0 for i in range(self.n_H)}  # All nodes have weight 1
-        self.H_graph = WeightedGraph(edge_weights=h_edge_weights, node_weights=h_node_weights)
-        
-        # For G: weighted graph from user input
-        g_edge_weights = {}
-        for i in range(self.n_G):
-            g_edge_weights[i] = {}
-            for j in range(self.n_G):
-                g_edge_weights[i][j] = float(G_matrix[i][j])
-        
-        g_node_weights = {i: 1.0 for i in range(self.n_G)}  # All nodes have weight 1
-        self.G_graph = WeightedGraph(edge_weights=g_edge_weights, node_weights=g_node_weights)
+        self.use_countHomLib = use_countHomLib and COUNTHOMLIB_AVAILABLE
         
         # Count edges in H (for Sidorenko calculation)
         self.num_edges_H = sum(1 for i in range(self.n_H) for j in range(i+1, self.n_H) if H_matrix[i][j] != 0)
+        
+        if self.use_countHomLib:
+            # Create CountHomLib Graph and Graphon objects
+            # Convert H_matrix to integer matrix for Graph constructor
+            H_int = [[int(H_matrix[i][j]) for j in range(self.n_H)] for i in range(self.n_H)]
+            self.H_graph_lib = Graph(H_int)
+            
+            # Convert G_matrix to double matrix for Graphon constructor
+            G_double = [[float(G_matrix[i][j]) for j in range(self.n_G)] for i in range(self.n_G)]
+            self.G_graphon_lib = Graphon(G_double)
+        else:
+            # Create WeightedGraph objects using the custom implementation
+            # For H: unweighted graph (all edge weights = 1, node weights = 1)
+            h_edge_weights = {}
+            for i in range(self.n_H):
+                h_edge_weights[i] = {}
+                for j in range(self.n_H):
+                    if H_matrix[i][j] != 0:
+                        h_edge_weights[i][j] = 1.0  # All edges have weight 1
+                    else:
+                        h_edge_weights[i][j] = 0.0
+            
+            h_node_weights = {i: 1.0 for i in range(self.n_H)}  # All nodes have weight 1
+            self.H_graph = WeightedGraph(edge_weights=h_edge_weights, node_weights=h_node_weights)
+            
+            # For G: weighted graph from user input
+            g_edge_weights = {}
+            for i in range(self.n_G):
+                g_edge_weights[i] = {}
+                for j in range(self.n_G):
+                    g_edge_weights[i][j] = float(G_matrix[i][j])
+            
+            g_node_weights = {i: 1.0 for i in range(self.n_G)}  # All nodes have weight 1
+            self.G_graph = WeightedGraph(edge_weights=g_edge_weights, node_weights=g_node_weights)
     
     def calculate_sidorenko_score(self):
         """
         Calculate the Sidorenko score t_H_G - p^|E(H)|
         where:
-        - t_H_G = hom_count / (n_G^n_H) (homomorphism density)
+        - t_H_G = homomorphism density
         - p = average of all entries in G matrix (edge density)
         """
         try:
-            # Set high precision for calculations
-            getcontext().prec = 50
-            
-            # Count homomorphisms from H to G
-            hom_count = count_homomorphisms(self.H_graph, self.G_graph, precision=50)
-            
-            # Calculate homomorphism density: t_H_G = hom_count / (n_G^n_H)
-            n_G_decimal = Decimal(self.n_G)
-            n_H_decimal = Decimal(self.n_H)
-            
-            if n_G_decimal == 0:
-                return float('nan'), {'error': 'G has no vertices'}
-            
-            denominator = n_G_decimal ** int(n_H_decimal)
-            t_H_G = hom_count / denominator
-            
-            # Calculate edge density: average of all entries in G matrix
-            total_sum = Decimal(0)
-            total_entries = Decimal(self.n_G * self.n_G)
-            
-            for i in range(self.n_G):
-                for j in range(self.n_G):
-                    total_sum += Decimal(str(self.G_matrix[i][j]))
-            
-            p = total_sum / total_entries if total_entries > 0 else Decimal(0)
-            
-            # Calculate p^|E(H)|
-            p_power_edges = p ** self.num_edges_H if self.num_edges_H > 0 else Decimal(1)
-            
-            # Sidorenko score = t_H_G - p^|E(H)|
-            sidorenko_score = t_H_G - p_power_edges
-            
-            return float(sidorenko_score), {
-                'hom_count': float(hom_count),
-                't_H_G': float(t_H_G),
-                'edge_density_p': float(p),
-                'p_power_edges': float(p_power_edges),
-                'num_edges_H': self.num_edges_H,
-                'sidorenko_score': float(sidorenko_score)
-            }
-            
+            if self.use_countHomLib:
+                return self._calculate_with_countHomLib()
+            else:
+                return self._calculate_with_custom()
+                
         except Exception as e:
             app.logger.error(f"Error in calculate_sidorenko_score: {str(e)}")
             app.logger.error(traceback.format_exc())
             return float('nan'), {'error': str(e)}
+    
+    def _calculate_with_countHomLib(self):
+        """Calculate using CountHomLib (high-performance C++ implementation)"""
+        # Use countHomGraphon with normalise=True to get homomorphism density directly
+        t_H_G = countHomGraphon(self.H_graph_lib, self.G_graphon_lib, normalise=True)
+        
+        # Calculate edge density: average of all entries in G matrix
+        total_sum = 0.0
+        total_entries = self.n_G * self.n_G
+        
+        for i in range(self.n_G):
+            for j in range(self.n_G):
+                total_sum += self.G_matrix[i][j]
+        
+        p = total_sum / total_entries if total_entries > 0 else 0.0
+        
+        # Calculate p^|E(H)|
+        p_power_edges = p ** self.num_edges_H if self.num_edges_H > 0 else 1.0
+        
+        # Sidorenko score = t_H_G - p^|E(H)|
+        sidorenko_score = t_H_G - p_power_edges
+        
+        # For raw homomorphism count, we need to multiply by n_G^n_H
+        # since countHomGraphon with normalise=True divides by n_G^n_H
+        raw_hom_count = t_H_G * (self.n_G ** self.n_H)
+        
+        return float(sidorenko_score), {
+            'hom_count': float(raw_hom_count),
+            't_H_G': float(t_H_G),
+            'edge_density_p': float(p),
+            'p_power_edges': float(p_power_edges),
+            'num_edges_H': self.num_edges_H,
+            'sidorenko_score': float(sidorenko_score),
+            'implementation': 'CountHomLib'
+        }
+    
+    def _calculate_with_custom(self):
+        """Calculate using custom WeightedGraph implementation with high precision Decimal arithmetic"""
+        from decimal import Decimal, getcontext
+        import itertools
+        
+        # Set high precision for Decimal calculations
+        getcontext().prec = 50
+        
+        n_H = self.n_H
+        n_G = self.n_G
+        
+        # Convert matrices to Decimal for high precision
+        H_decimal = [[Decimal(str(self.H_matrix[i][j])) for j in range(n_H)] for i in range(n_H)]
+        G_decimal = [[Decimal(str(self.G_matrix[i][j])) for j in range(n_G)] for i in range(n_G)]
+        
+        # Get edges in H
+        edges = []
+        for i in range(n_H):
+            for j in range(i + 1, n_H):
+                if H_decimal[i][j] == Decimal('1'):
+                    edges.append((i, j))
+        
+        # Calculate graphon homomorphism density using brute force with Decimal precision
+        # This matches the standard graphon definition
+        block_volume = Decimal('1') / Decimal(str(n_G))
+        t_H_G = Decimal('0')
+        
+        # Iterate over all assignments of H vertices to G vertices
+        for assignment in itertools.product(range(n_G), repeat=n_H):
+            prob = Decimal('1')
+            # For each edge in H, multiply by corresponding G entry
+            for (u, v) in edges:
+                prob *= G_decimal[assignment[u]][assignment[v]]
+            t_H_G += prob * (block_volume ** n_H)
+        
+        # Calculate edge density: average of all entries in G matrix using Decimal
+        total_sum = Decimal('0')
+        total_entries = Decimal(str(n_G * n_G))
+        
+        for i in range(n_G):
+            for j in range(n_G):
+                total_sum += G_decimal[i][j]
+        
+        p = total_sum / total_entries if total_entries > Decimal('0') else Decimal('0')
+        
+        # Calculate p^|E(H)| using Decimal
+        if self.num_edges_H > 0:
+            p_power_edges = p ** self.num_edges_H
+        else:
+            p_power_edges = Decimal('1')
+        
+        # Sidorenko score = t_H_G - p^|E(H)|
+        sidorenko_score = t_H_G - p_power_edges
+        
+        # For raw homomorphism count, multiply by n_G^n_H
+        raw_hom_count = t_H_G * (Decimal(str(n_G)) ** n_H)
+        
+        return float(sidorenko_score), {
+            'hom_count': float(raw_hom_count),
+            't_H_G': float(t_H_G),
+            'edge_density_p': float(p),
+            'p_power_edges': float(p_power_edges),
+            'num_edges_H': self.num_edges_H,
+            'sidorenko_score': float(sidorenko_score),
+            'implementation': 'Custom (Graphon, 50-digit precision)'
+        }
 
 def vary_parameter(G_matrix, i, j, step_size):
     """
@@ -152,7 +238,7 @@ def vary_parameter(G_matrix, i, j, step_size):
     new_matrix[j][i] = new_value  # Maintain symmetry
     return new_matrix
 
-def find_optimal_step(H_matrix, G_matrix, step_size=0.01, max_iterations=100):
+def find_optimal_step(H_matrix, G_matrix, step_size=0.01, use_countHomLib=False, max_iterations=100):
     """
     Find the optimal step to decrease the Sidorenko score (looking for counterexamples).
     Uses the same range-based approach as parameter analysis to find the global minimum.
@@ -160,7 +246,7 @@ def find_optimal_step(H_matrix, G_matrix, step_size=0.01, max_iterations=100):
     """
     try:
         # Calculate current score
-        calc = SidorenkoCalculator(H_matrix, G_matrix)
+        calc = SidorenkoCalculator(H_matrix, G_matrix, use_countHomLib=use_countHomLib)
         current_score, _ = calc.calculate_sidorenko_score()
         
         if np.isnan(current_score):
@@ -198,7 +284,7 @@ def find_optimal_step(H_matrix, G_matrix, step_size=0.01, max_iterations=100):
                     
                     # Calculate Sidorenko score
                     try:
-                        calc_test = SidorenkoCalculator(H_matrix, test_matrix)
+                        calc_test = SidorenkoCalculator(H_matrix, test_matrix, use_countHomLib=use_countHomLib)
                         test_score, _ = calc_test.calculate_sidorenko_score()
                         
                         if not np.isnan(test_score) and test_score < best_score:
@@ -247,6 +333,7 @@ def calculate_sidorenko():
         data = request.json
         H_matrix = data.get('H')
         G_matrix = data.get('G')
+        use_countHomLib = data.get('use_countHomLib', False)
         
         if not H_matrix or not G_matrix:
             return jsonify({'error': 'Missing H or G matrix'}), 400
@@ -261,7 +348,11 @@ def calculate_sidorenko():
         if not is_valid_probability_matrix(G_matrix):
             return jsonify({'error': 'G matrix must have all values between 0 and 1 (inclusive)'}), 400
         
-        calc = SidorenkoCalculator(H_matrix, G_matrix)
+        # Check if CountHomLib is requested but not available
+        if use_countHomLib and not COUNTHOMLIB_AVAILABLE:
+            return jsonify({'error': 'CountHomLib is not available. Please install it or use the custom implementation.'}), 400
+        
+        calc = SidorenkoCalculator(H_matrix, G_matrix, use_countHomLib=use_countHomLib)
         score, details = calc.calculate_sidorenko_score()
         
         return jsonify({
@@ -285,6 +376,7 @@ def generate_plots_data():
         H_matrix = data.get('H')
         G_matrix = data.get('G')
         upsilon = data.get('step_size', 0.01)  # This is our 'u' parameter
+        use_countHomLib = data.get('use_countHomLib', False)
         
         if not H_matrix or not G_matrix:
             return jsonify({'error': 'Missing H or G matrix'}), 400
@@ -298,6 +390,10 @@ def generate_plots_data():
         # Validate that G matrix has values in [0, 1] range
         if not is_valid_probability_matrix(G_matrix):
             return jsonify({'error': 'G matrix must have all values between 0 and 1 (inclusive)'}), 400
+        
+        # Check if CountHomLib is requested but not available
+        if use_countHomLib and not COUNTHOMLIB_AVAILABLE:
+            return jsonify({'error': 'CountHomLib is not available. Please install it or use the custom implementation.'}), 400
         
         n = len(G_matrix)
         plots_data = {}
@@ -329,7 +425,7 @@ def generate_plots_data():
                     
                     # Calculate Sidorenko score
                     try:
-                        calc = SidorenkoCalculator(H_matrix, test_matrix)
+                        calc = SidorenkoCalculator(H_matrix, test_matrix, use_countHomLib=use_countHomLib)
                         score, _ = calc.calculate_sidorenko_score()
                         
                         if not np.isnan(score):
@@ -354,7 +450,8 @@ def generate_plots_data():
         return jsonify({
             'plots_data': plots_data,
             'matrix_size': n,
-            'upsilon': upsilon
+            'upsilon': upsilon,
+            'implementation': 'CountHomLib' if use_countHomLib else 'Custom'
         })
         
     except Exception as e:
@@ -369,6 +466,7 @@ def optimize_step():
         H_matrix = data.get('H')
         G_matrix = data.get('G')
         step_size = data.get('step_size', 0.01)
+        use_countHomLib = data.get('use_countHomLib', False)
         
         if not H_matrix or not G_matrix:
             return jsonify({'error': 'Missing H or G matrix'}), 400
@@ -383,7 +481,11 @@ def optimize_step():
         if not is_valid_probability_matrix(G_matrix):
             return jsonify({'error': 'G matrix must have all values between 0 and 1 (inclusive)'}), 400
         
-        result, error = find_optimal_step(H_matrix, G_matrix, step_size)
+        # Check if CountHomLib is requested but not available
+        if use_countHomLib and not COUNTHOMLIB_AVAILABLE:
+            return jsonify({'error': 'CountHomLib is not available. Please install it or use the custom implementation.'}), 400
+        
+        result, error = find_optimal_step(H_matrix, G_matrix, step_size, use_countHomLib=use_countHomLib)
         
         if error:
             return jsonify({'error': error}), 400
@@ -396,7 +498,7 @@ def optimize_step():
             new_G_matrix[j][i] = result['new_value']  # Maintain symmetry
             
             # Calculate new score
-            calc = SidorenkoCalculator(H_matrix, new_G_matrix)
+            calc = SidorenkoCalculator(H_matrix, new_G_matrix, use_countHomLib=use_countHomLib)
             new_score, details = calc.calculate_sidorenko_score()
             
             return jsonify({
@@ -423,6 +525,14 @@ def optimize_step():
         app.logger.error(f"Error in optimize_step: {str(e)}")
         app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/counthomlib_status', methods=['GET'])
+def counthomlib_status():
+    """Check if CountHomLib is available"""
+    return jsonify({
+        'available': COUNTHOMLIB_AVAILABLE,
+        'message': 'CountHomLib is available and ready to use' if COUNTHOMLIB_AVAILABLE else 'CountHomLib is not installed or not available'
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, port=5002)

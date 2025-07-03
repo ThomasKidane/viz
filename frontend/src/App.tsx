@@ -16,6 +16,17 @@ import {
 import { buildApiUrl, config } from './config';
 import './App.css';
 
+interface CalculationDetails {
+  hom_count: number;
+  t_H_G: number;
+  edge_density_p: number;
+  p_power_edges: number;
+  num_edges_H: number;
+  sidorenko_score: number;
+  implementation?: string;
+  error?: string;
+}
+
 interface ScoreHistory {
   step: number;
   score: number;
@@ -72,10 +83,17 @@ function App() {
   );
 
   // State for computation results
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<{ score: number; details: CalculationDetails } | null>(null);
   const [error, setError] = useState<string>('');
-  const [isCalculating, setIsCalculating] = useState<boolean>(false);
-  const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationProgress, setOptimizationProgress] = useState<{
+    currentStep: number;
+    totalSteps: number;
+    consecutiveNoImprovements: number;
+    lastImprovement?: number;
+    status: 'running' | 'error';
+  } | null>(null);
   
   // Optimization parameters
   const [stepSize, setStepSize] = useState<string>('0.01');
@@ -93,6 +111,28 @@ function App() {
 
   // Add step counter to ensure unique incrementing step numbers starting from 1
   const stepCounterRef = useRef(1);
+
+  // CountHomLib related state
+  const [useCountHomLib, setUseCountHomLib] = useState(false);
+  const [countHomLibAvailable, setCountHomLibAvailable] = useState(false);
+  const [countHomLibStatus, setCountHomLibStatus] = useState<string>('Checking...');
+
+  // Check CountHomLib availability on startup
+  useEffect(() => {
+    const checkCountHomLibStatus = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/api/counthomlib_status'));
+        const data = await response.json();
+        setCountHomLibAvailable(data.available);
+        setCountHomLibStatus(data.message);
+      } catch (error) {
+        setCountHomLibAvailable(false);
+        setCountHomLibStatus('Error checking CountHomLib status');
+      }
+    };
+    
+    checkCountHomLibStatus();
+  }, []);
 
   // Parse matrix from text
   const parseMatrix = (text: string): number[][] | null => {
@@ -171,15 +211,18 @@ function App() {
         body: JSON.stringify({
           H,
           G,
-          step_size: parseFloat(stepSize) || 0.01
+          step_size: parseFloat(stepSize) || 0.01,
+          use_countHomLib: useCountHomLib
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
       const data = await response.json();
+
+      // Handle server errors (400, 500, etc.) that return JSON with error messages
+      if (!response.ok) {
+        const errorMessage = data.error || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
       
       if (data.error) {
         throw new Error(data.error);
@@ -237,7 +280,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ H, G }),
+        body: JSON.stringify({ H, G, use_countHomLib: useCountHomLib }),
       });
 
       if (!response.ok) {
@@ -285,15 +328,18 @@ function App() {
         body: JSON.stringify({
           H,
           G,
-          step_size: parseFloat(stepSize) || 0.01
+          step_size: parseFloat(stepSize) || 0.01,
+          use_countHomLib: useCountHomLib
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
       const data = await response.json();
+
+      // Handle server errors (400, 500, etc.) that return JSON with error messages
+      if (!response.ok) {
+        const errorMessage = data.error || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
       
       if (data.error) {
         throw new Error(data.error);
@@ -354,15 +400,69 @@ function App() {
     
     const numSteps = parseInt(numberOfSteps) || 10;
     let consecutiveFailures = 0;
-    const maxConsecutiveFailures = 3;
+    let consecutiveNoImprovements = 0;
+    const maxConsecutiveFailures = 10; // Only stop on actual errors
+    // Removed maxConsecutiveNoImprovements - never stop for "no improvement"
+
+    // Initialize progress tracking
+    setOptimizationProgress({
+      currentStep: 0,
+      totalSteps: numSteps,
+      consecutiveNoImprovements: 0,
+      status: 'running'
+    });
 
     // Track current matrices locally to avoid React state update delays
     let currentH = matrices.H;
     let currentG = matrices.G;
 
     for (let i = 0; i < numSteps && !optimizationShouldStop.current; i++) {
+      // Update progress
+                setOptimizationProgress(prev => prev ? {
+            ...prev,
+            currentStep: i + 1,
+            consecutiveNoImprovements,
+            status: 'running' // Always keep running, never mark as converging
+          } : null);
+
       try {
         if (!currentH || !currentG) break;
+
+        // Debug: Validate matrices before sending
+        if (!isSymmetricMatrix(currentH)) {
+          console.error('H matrix is not symmetric at step', i + 1, currentH);
+          setError(`H matrix became non-symmetric at step ${i + 1}`);
+          break;
+        }
+        if (!isSymmetricMatrix(currentG)) {
+          console.error('G matrix is not symmetric at step', i + 1, currentG);
+          setError(`G matrix became non-symmetric at step ${i + 1}`);
+          break;
+        }
+
+        // Debug: Check for invalid values in G matrix and fix small floating point errors
+        let hasInvalidValues = false;
+        currentG = currentG.map(row => 
+          row.map(val => {
+            if (isNaN(val)) {
+              hasInvalidValues = true;
+              return val;
+            }
+            // Fix small floating point precision errors
+            if (val < 0 && val > -1e-10) return 0;
+            if (val > 1 && val < 1 + 1e-10) return 1;
+            if (val < 0 || val > 1) {
+              hasInvalidValues = true;
+            }
+            return val;
+          })
+        );
+        
+        if (hasInvalidValues) {
+          console.error('G matrix has invalid values at step', i + 1, currentG);
+          setError(`G matrix has values outside [0,1] range or NaN at step ${i + 1}`);
+          break;
+        }
 
         const response = await fetch(buildApiUrl('/api/optimize_step'), {
           method: 'POST',
@@ -372,29 +472,53 @@ function App() {
           body: JSON.stringify({
             H: currentH,
             G: currentG,
-            step_size: parseFloat(stepSize) || 0.01
+            step_size: parseFloat(stepSize) || 0.01,
+            use_countHomLib: useCountHomLib
           }),
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
         const data = await response.json();
+
+        // Handle server errors (400, 500, etc.) that return JSON with error messages
+        if (!response.ok) {
+          const errorMessage = data.error || `HTTP ${response.status}: ${response.statusText}`;
+          console.error(`API Error at step ${i + 1}:`, {
+            status: response.status,
+            statusText: response.statusText,
+            errorMessage,
+            currentH,
+            currentG,
+            stepSize: parseFloat(stepSize) || 0.01,
+            useCountHomLib
+          });
+          throw new Error(errorMessage);
+        }
         
         if (data.error) {
           consecutiveFailures++;
-          console.warn(`Step ${i + 1} failed: ${data.error}`);
+          console.warn(`Step ${i + 1} failed with error: ${data.error}`);
+          
+          setOptimizationProgress(prev => prev ? { ...prev, status: 'error' } : null);
           
           if (consecutiveFailures >= maxConsecutiveFailures) {
-            setError(`Stopped after ${maxConsecutiveFailures} consecutive failures. Last error: ${data.error}`);
+            setError(`Stopped after ${maxConsecutiveFailures} consecutive errors. Last error: ${data.error}`);
             break;
           }
           continue;
         }
 
         if (data.success) {
-          consecutiveFailures = 0; // Reset failure counter
+          // Reset both counters on success
+          consecutiveFailures = 0;
+          consecutiveNoImprovements = 0;
+          
+          // Update progress with improvement
+          setOptimizationProgress(prev => prev ? {
+            ...prev,
+            consecutiveNoImprovements: 0,
+            lastImprovement: data.optimization_info.improvement,
+            status: 'running'
+          } : null);
           
           // Update local G matrix for next iteration (immediate, synchronous)
           currentG = data.new_matrix;
@@ -432,36 +556,68 @@ function App() {
           });
 
           // Small delay to prevent overwhelming the server
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise(resolve => setTimeout(resolve, 100)); // Increased from 50ms
 
         } else {
-          consecutiveFailures++;
-          console.warn(`Step ${i + 1} failed: ${data.message || 'No improvement found'}`);
+          // Handle "no improvement found" case (not an error, continue searching)
+          consecutiveNoImprovements++;
+          console.log(`Step ${i + 1}: ${data.message || 'No improvement found'} (${consecutiveNoImprovements} consecutive steps) - continuing search...`);
           
-          if (consecutiveFailures >= maxConsecutiveFailures) {
-            setError(`Stopped after ${maxConsecutiveFailures} consecutive failures. Last message: ${data.message || 'No improvement found'}`);
-            break;
-          }
+          // Update progress showing we're still searching
+          setOptimizationProgress(prev => prev ? {
+            ...prev,
+            currentStep: i + 1,
+            consecutiveNoImprovements,
+            status: 'running' // Always keep status as running
+          } : null);
+          
+          // Never stop for "no improvement" - keep exploring the parameter space
+          // Add a short delay to prevent overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 150));
         }
 
       } catch (error) {
         consecutiveFailures++;
         console.error(`Error in step ${i + 1}:`, error);
         
+        setOptimizationProgress(prev => prev ? { ...prev, status: 'error' } : null);
+        
         if (consecutiveFailures >= maxConsecutiveFailures) {
-          setError(`Stopped after ${maxConsecutiveFailures} consecutive failures. Last error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          setError(`Stopped after ${maxConsecutiveFailures} consecutive errors. Last error: ${error instanceof Error ? error.message : 'Unknown error'}`);
           break;
         }
+        
+        // Longer delay after errors
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
     setIsOptimizing(false);
+    setOptimizationProgress(null);
   };
 
   // Stop optimization
   const stopOptimization = () => {
     optimizationShouldStop.current = true;
     setIsOptimizing(false);
+    
+    // Provide feedback about stopped optimization
+    if (optimizationProgress) {
+      const { currentStep, totalSteps, consecutiveNoImprovements } = optimizationProgress;
+      let message = `Optimization stopped by user after ${currentStep} steps`;
+      
+      if (consecutiveNoImprovements > 0) {
+        message += `. No improvements found for last ${consecutiveNoImprovements} steps`;
+      }
+      
+      if (currentStep < totalSteps) {
+        message += ` (${totalSteps - currentStep} steps remaining)`;
+      }
+      
+      setError(message);
+    }
+    
+    setOptimizationProgress(null);
   };
 
   // Initial calculation
@@ -665,11 +821,27 @@ function App() {
     );
   };
 
+  // Toggle CountHomLib usage
+  const toggleCountHomLib = () => {
+    if (countHomLibAvailable) {
+      setUseCountHomLib(!useCountHomLib);
+    }
+  };
+
   return (
     <div className="app-container">
       <header className="app-header">
         <h1>Sidorenko's Conjecture Visualization Tool</h1>
         <div className="header-controls">
+          <button onClick={toggleCountHomLib} className={`control-button ${useCountHomLib ? 'primary' : ''}`} disabled={!countHomLibAvailable} title={countHomLibAvailable ? (useCountHomLib ? 'Switch to Custom Implementation' : 'Switch to CountHomLib (High Performance)') : countHomLibStatus}>
+            {useCountHomLib ? 'Using CountHomLib' : 'Using Custom'}
+          </button>
+          <span className="status-text">
+            {countHomLibAvailable ? 
+              (useCountHomLib ? '🚀 High Performance' : '🐌 Custom Implementation') : 
+              '⚠️ CountHomLib Not Available'
+            }
+          </span>
           <button onClick={loadExampleData} className="control-button">
             Load Example
           </button>
@@ -742,6 +914,17 @@ function App() {
               />
             </div>
             
+            <div className="optimization-help">
+              <p><strong>Optimization Notes:</strong></p>
+              <ul>
+                <li>🏃 <strong>Running:</strong> Continuously searching for better parameters</li>
+                <li>🔍 <strong>Exploring:</strong> Keeps searching even when no immediate improvements found</li>
+                <li>⚠️ <strong>Issues:</strong> Only stops for actual calculation errors</li>
+                <li>The algorithm will run for the full number of steps you specify - never stops for "no improvement"</li>
+                <li>Press "Stop Optimization" to halt manually at any time</li>
+              </ul>
+            </div>
+            
             <div className="button-group">
               <button onClick={optimizeStep} disabled={isOptimizing} className="control-button">
                 Single Step
@@ -753,7 +936,41 @@ function App() {
                 Stop
               </button>
             </div>
-            {isOptimizing && <p className="status-text">Running optimization...</p>}
+            
+            {/* Enhanced optimization status display */}
+            {isOptimizing && optimizationProgress && (
+              <div className="optimization-status">
+                <div className="status-header">
+                  <span className="status-text">
+                    {optimizationProgress.status === 'running' && '🏃 Optimizing...'}
+                    {optimizationProgress.status === 'error' && '⚠️ Issues detected'}
+                  </span>
+                  <span className="progress-text">
+                    Step {optimizationProgress.currentStep} / {optimizationProgress.totalSteps}
+                  </span>
+                </div>
+                
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${(optimizationProgress.currentStep / optimizationProgress.totalSteps) * 100}%` }}
+                  />
+                </div>
+                
+                <div className="status-details">
+                  {optimizationProgress.consecutiveNoImprovements > 0 && (
+                    <span className="convergence-info">
+                      🔍 Exploring: {optimizationProgress.consecutiveNoImprovements} steps without improvement (continuing search...)
+                    </span>
+                  )}
+                  {optimizationProgress.lastImprovement && (
+                    <span className="last-improvement">
+                      Last improvement: {optimizationProgress.lastImprovement.toFixed(6)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -784,7 +1001,7 @@ function App() {
 
               {results.details && (
                 <div className="computation-details">
-                  <h4>Computation Details</h4>
+                  <h4>Computation Details {results.details.implementation && `(${results.details.implementation})`}</h4>
                   <div className="details-grid">
                     <div className="detail-item">
                       <span className="label">Homomorphism Count:</span>
@@ -802,6 +1019,12 @@ function App() {
                       <span className="label">p^|E(H)|:</span>
                       <span className="value">{results.details.p_power_edges?.toFixed(6) || 'N/A'}</span>
                     </div>
+                    {results.details.implementation && (
+                      <div className="detail-item">
+                        <span className="label">Implementation:</span>
+                        <span className="value">{results.details.implementation}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

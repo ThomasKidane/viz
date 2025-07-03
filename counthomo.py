@@ -2,6 +2,7 @@ import itertools
 import math
 from decimal import Decimal, Context, InvalidOperation
 import decimal
+from typing import Union, Optional, Dict, Any
 
 # Import SageMath types if available (requires SageMath installation)
 try:
@@ -19,7 +20,7 @@ except ImportError:
 
 
 class WeightedGraph:
-    def __init__(self, edge_weights: dict[any, dict[any, float | Decimal]], node_weights: dict[any, float | Decimal] | None = None):
+    def __init__(self, edge_weights: Dict[Any, Dict[Any, Union[float, Decimal]]], node_weights: Optional[Dict[Any, Union[float, Decimal]]] = None):
         """
         Represents a weighted graph using Decimal for precision.
 
@@ -66,18 +67,18 @@ class WeightedGraph:
         #     self.vertices = list(self.node_weights.keys()) # Fallback for unsortable types
 
 
-    def get_node_weight(self, v: any) -> Decimal:
+    def get_node_weight(self, v: Any) -> Decimal:
         """Gets the weight of a node."""
         return self.node_weights.get(v, Decimal(0.0))
 
-    def get_edge_weight(self, u: any, v: any) -> Decimal:
+    def get_edge_weight(self, u: Any, v: Any) -> Decimal:
         """
         Gets the weight of the directed edge from u to v.
         Handles potential absence of u or v in edge_weights.
         """
         return self.edge_weights.get(u, {}).get(v, Decimal(0.0))
 
-def convert_sage_graph_to_weighted_graph(sage_graph: SageGraph | SageDiGraph) -> WeightedGraph:
+def convert_sage_graph_to_weighted_graph(sage_graph: Union[SageGraph, SageDiGraph]) -> WeightedGraph:
     """
     Converts a SageMath graph (Graph or DiGraph) to a WeightedGraph object.
 
@@ -116,7 +117,7 @@ def convert_sage_graph_to_weighted_graph(sage_graph: SageGraph | SageDiGraph) ->
 
     return WeightedGraph(node_weights=node_weights, edge_weights=edge_weights)
 
-def count_homomorphisms(F: WeightedGraph | SageGraph | SageDiGraph, G: WeightedGraph | SageGraph | SageDiGraph, precision: int | None = None) -> Decimal:
+def count_homomorphisms(F: Union[WeightedGraph, SageGraph, SageDiGraph], G: Union[WeightedGraph, SageGraph, SageDiGraph], precision: Optional[int] = None) -> Decimal:
     """
     Counts the number of homomorphisms from weighted graph F to weighted graph G using Decimal.
     Can accept either WeightedGraph objects or SageMath Graph/DiGraph objects.

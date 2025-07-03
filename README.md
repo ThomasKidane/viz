@@ -10,6 +10,7 @@ This tool allows researchers to:
 - Run optimization algorithms to search for potential counterexamples to Sidorenko's conjecture
 - Track the evolution of matrices through optimization steps
 - Analyze parameter sensitivity with interactive plots
+- **Switch between high-performance CountHomLib and custom implementations**
 
 ## Mathematical Background
 
@@ -32,15 +33,23 @@ The **Sidorenko score** is defined as: `t_H(G) - (t_K₂(G))^|E(H)|`
 ## Features
 
 ### 🧮 Core Calculations
-- High-precision homomorphism counting using custom graph libraries
+- **Dual Implementation Support**: Choose between CountHomLib (high-performance C++) and custom Python implementation
+- High-precision homomorphism counting using state-of-the-art algorithms
 - Sidorenko score computation with detailed mathematical breakdown
-- Support for weighted and unweighted graphs
+- Support for weighted graphons and unweighted graphs
+
+### ⚡ CountHomLib Integration
+- **High-Performance Computing**: Utilize efficient C++ implementation with Python bindings
+- **Tree Decomposition Algorithms**: Optimal complexity O(|V(G)|^{tw(H)+1}) using nice tree decompositions
+- **Graphon Support**: Direct homomorphism density calculation for weighted graphs
+- **Automatic Fallback**: Seamlessly switches to custom implementation if CountHomLib is unavailable
 
 ### 🎯 Optimization Engine
 - **Single-step optimization**: Find the best parameter change for one iteration
 - **Multi-step optimization**: Run continuous optimization with stopping conditions
 - **Global search**: Test all valid parameter values within specified ranges
 - **Matrix bounds enforcement**: All values automatically clamped to [0,1] range
+- **Implementation switching**: Use either CountHomLib or custom implementation for optimization
 
 ### 📊 Interactive Visualization
 - **Real-time score display** with counterexample detection
@@ -48,11 +57,13 @@ The **Sidorenko score** is defined as: `t_H(G) - (t_K₂(G))^|E(H)|`
 - **Parameter analysis plots** showing how each matrix entry affects the score
 - **Score evolution charts** throughout the optimization process
 - **Scrollable history** of all optimization steps
+- **Implementation indicator**: See which computation method was used
 
 ### 🔍 Analysis Tools
 - **Parameter sensitivity analysis**: See how changing each matrix entry affects the Sidorenko score
 - **Change tracking**: Visual highlighting of modified matrix entries
 - **Historical comparison**: Review all previous optimization steps
+- **Performance comparison**: Compare results between different implementations
 - **Export capabilities**: Save matrices and results for further analysis
 
 ## Installation
@@ -75,12 +86,14 @@ cd viz
 pip install -r requirements.txt
 ```
 
-3. Install the custom homomorphism counting library:
+3. Install CountHomLib (Optional but Recommended):
 ```bash
 cd CountHomLib
 pip install .
 cd ..
 ```
+
+**Note**: If CountHomLib installation fails, the tool will automatically use the custom implementation.
 
 4. Start the Flask backend:
 ```bash
@@ -108,7 +121,13 @@ The frontend will open at `http://localhost:3000`
 
 ## Usage
 
-### 1. Input Matrices
+### 1. Choose Implementation
+
+Click the **"Using CountHomLib"** or **"Using Custom"** button in the header to switch between:
+- **CountHomLib**: High-performance C++ implementation (🚀 recommended for large graphs)
+- **Custom**: Python implementation (🐌 works without additional dependencies)
+
+### 2. Input Matrices
 
 **Pattern Graph H**: Enter the adjacency matrix of your pattern graph (should be unweighted, 0s and 1s)
 ```json
@@ -120,15 +139,16 @@ The frontend will open at `http://localhost:3000`
 [[0.5, 0.8], [0.8, 0.3]]
 ```
 
-### 2. Compute Sidorenko Score
+### 3. Compute Sidorenko Score
 
 Click **"Calculate Sidorenko Score"** to see:
 - Current Sidorenko score
 - Homomorphism count details
 - Edge density calculations
 - Counterexample detection
+- **Implementation used** (CountHomLib or Custom)
 
-### 3. Run Optimization
+### 4. Run Optimization
 
 **Single Step Optimization**:
 - Click **"Optimize Single Step"** to find the best parameter change
@@ -140,40 +160,51 @@ Click **"Calculate Sidorenko Score"** to see:
 3. Watch real-time optimization progress
 4. Use **"Stop Optimization"** to halt early
 
-### 4. Analyze Results
+### 5. Analyze Results
 
 - **Matrix Evolution**: Review all matrices from the optimization history
 - **Parameter Analysis**: Examine plots showing how each parameter affects the score
 - **Score Charts**: Track score improvements over time
 - **Change Detection**: See exactly which matrix entries were modified
+- **Implementation Comparison**: Switch between implementations to compare results
+
+## Performance Comparison
+
+| Feature | CountHomLib | Custom Implementation |
+|---------|-------------|----------------------|
+| **Speed** | Very Fast (C++) | Moderate (Python) |
+| **Memory** | Efficient | Higher usage |
+| **Complexity** | O(\|V(G)\|^{tw(H)+1}) | O(\|V(G)\|^{\|V(H)\|}) |
+| **Dependencies** | Requires installation | Built-in |
+| **Precision** | High (double) | Very High (Decimal) |
+| **Graph Size** | Large graphs supported | Best for small graphs |
+
+**Recommendation**: Use CountHomLib for large graphs and intensive computations. Use Custom implementation for verification or when CountHomLib is unavailable.
 
 ## Example Workflow
 
-1. **Start with a simple case**:
-   - H: `[[0,1],[1,0]]` (edge graph)
-   - G: `[[0.5,0.8],[0.8,0.3]]` (random values)
-
-2. **Calculate initial score**: Often positive for random matrices
-
-3. **Run optimization**: Use step size 0.01 for 50 steps
-
-4. **Analyze results**: Check if score becomes negative (potential counterexample)
+1. **Start with CountHomLib**: Click the toggle to ensure high performance
+2. **Load example data**: H: `[[0,1,0],[1,0,1],[0,1,0]]` (path graph), G: `[[0.5,0.3,0.2],[0.3,0.4,0.1],[0.2,0.1,0.6]]`
+3. **Calculate initial score**: Often positive for random matrices
+4. **Run optimization**: Use step size 0.01 for 50 steps
+5. **Compare implementations**: Toggle to Custom to verify results
+6. **Analyze results**: Check if score becomes negative (potential counterexample)
 
 ## Project Structure
 
 ```
 viz/
-├── app.py                      # Flask backend with optimization algorithms
+├── app.py                      # Flask backend with dual implementation support
 ├── requirements.txt            # Python dependencies
-├── CountHomLib/               # High-performance homomorphism counting
-│   ├── src/                   # C++ source code with Python bindings
-│   └── setup.py               # Library installation script
-├── customgraphhomo/           # Custom homomorphism computation
-│   └── counthomo.py           # Python implementation for verification
+├── counthomo.py               # Custom Python implementation (fallback)
+├── CountHomLib/               # High-performance C++ library
+│   ├── src/                   # C++ source with tree decomposition algorithms
+│   ├── setup.py               # Library installation script
+│   └── README.md              # CountHomLib documentation
 ├── frontend/                  # React TypeScript frontend
 │   ├── src/
-│   │   ├── App.tsx            # Main application component
-│   │   ├── App.css            # Styling and layout
+│   │   ├── App.tsx            # Main app with implementation toggle
+│   │   ├── App.css            # Styling and responsive design
 │   │   └── config.ts          # API configuration
 │   ├── package.json           # Node.js dependencies
 │   └── public/                # Static assets
@@ -184,29 +215,44 @@ viz/
 
 ### Backend Architecture
 - **Flask** REST API with CORS support
-- **SidorenkoCalculator** class for core mathematical computations
+- **Dual Implementation**: Automatic detection and switching between CountHomLib and custom code
+- **SidorenkoCalculator** class supporting both calculation methods
 - **Optimization algorithms** using gradient-free parameter exploration
-- **High-precision arithmetic** using Python's `Decimal` type
 - **Matrix validation** ensuring symmetry and [0,1] bounds
+- **Error handling** with graceful fallback between implementations
 
 ### Frontend Architecture
 - **React TypeScript** for type-safe UI development
+- **Implementation Toggle**: Real-time switching between calculation methods
 - **Recharts** for interactive data visualization
 - **Real-time updates** during optimization
+- **Status indicators** showing which implementation is active
 - **Responsive design** for various screen sizes
-- **Local state management** for optimization tracking
 
 ### Mathematical Implementation
-- Homomorphism counting via dynamic programming on tree decompositions
-- Efficient algorithms with complexity O(|V(G)|^{tw(H)+1})
-- Special optimizations for tree patterns
-- Support for both exact and weighted graph homomorphisms
+
+#### CountHomLib (Recommended)
+- Tree decomposition-based dynamic programming
+- Complexity: O(|V(G)|^{tw(H)+1}) where tw(H) is treewidth of H
+- Optimized for bipartite graphs and sparse patterns
+- Direct graphon homomorphism density calculation
+- Handles large graphs efficiently
+
+#### Custom Implementation (Fallback)
+- Brute force enumeration for graphon homomorphisms
+- Complexity: O(|V(G)|^{|V(H)|})
+- High-precision arithmetic using Python's Decimal
+- Best for small graphs and verification
+- Full Python implementation with no external dependencies
 
 ## API Endpoints
 
-- `POST /api/calculate` - Compute Sidorenko score for given H and G
+- `GET /api/counthomlib_status` - Check CountHomLib availability
+- `POST /api/calculate` - Compute Sidorenko score (with `use_countHomLib` parameter)
 - `POST /api/optimize_step` - Find optimal single parameter change
 - `POST /api/generate_plots_data` - Generate parameter analysis plots
+
+All endpoints support the `use_countHomLib` boolean parameter to choose implementation.
 
 ## Contributing
 
@@ -215,6 +261,7 @@ This tool is designed for mathematical research into Sidorenko's conjecture. Con
 - New visualization features
 - Performance improvements
 - Extended mathematical functionality
+- CountHomLib integration enhancements
 
 ## Research Applications
 
@@ -223,6 +270,20 @@ This tool has been used to:
 - Analyze parameter sensitivity in extremal graph theory
 - Visualize optimization landscapes for graph homomorphism problems
 - Generate test cases for theoretical analysis
+- Compare algorithmic approaches to homomorphism counting
+
+## Dependencies
+
+### Required (Backend)
+- Flask, Flask-CORS, numpy
+
+### Optional (High Performance)
+- CountHomLib: High-performance C++ library with Python bindings
+- pybind11: Required for CountHomLib compilation
+
+### Frontend
+- React, TypeScript, Recharts
+- Responsive CSS for multi-device support
 
 ## License
 
@@ -230,7 +291,8 @@ This project is provided for research and educational purposes. Please cite appr
 
 ## Acknowledgments
 
-- Built on efficient graph homomorphism counting algorithms
+- Built on efficient graph homomorphism counting algorithms from CountHomLib
 - Uses tree decomposition methods for optimal complexity
-- Incorporates high-precision arithmetic for reliable computations
-- Frontend design focused on mathematical research workflows 
+- Incorporates both high-performance C++ and high-precision Python implementations
+- Frontend design focused on mathematical research workflows
+- Supports both exact computation and approximation methods 
