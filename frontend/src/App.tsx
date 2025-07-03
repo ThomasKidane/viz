@@ -650,7 +650,7 @@ function App() {
                 {/* Show what changed */}
                 {optimizationStep && optimizationStep.old_value !== undefined && optimizationStep.new_value !== undefined && (
                   <div className="change-note">
-                    G[{optimizationStep.position[0]},{optimizationStep.position[1]}] changed from {optimizationStep.old_value.toFixed(3)} to {optimizationStep.new_value.toFixed(3)}
+                    G[{optimizationStep.position[0]},{optimizationStep.position[1]}] changed from {optimizationStep.old_value.toFixed(8)} to {optimizationStep.new_value.toFixed(8)}
                   </div>
                 )}
                 
@@ -668,7 +668,7 @@ function App() {
                             key={j} 
                             className={`matrix-value ${isChangedCell ? 'changed-cell' : ''}`}
                           >
-                            {value.toFixed(3)}
+                            {value.toFixed(6)}
                           </span>
                         );
                       })}
@@ -738,15 +738,15 @@ function App() {
                                     type="number"
                                     scale="linear"
                                     domain={['dataMin', 'dataMax']}
-                                    tickFormatter={(value) => value.toFixed(3)}
+                                    tickFormatter={(value) => value.toFixed(6)}
                                   />
-                                  <YAxis tickFormatter={(value) => value.toFixed(4)} />
+                                  <YAxis tickFormatter={(value) => value.toFixed(8)} />
                                   <Tooltip 
                                     formatter={(value: any, name: string) => [
-                                      typeof value === 'number' ? value.toFixed(6) : value, 
+                                      typeof value === 'number' ? value.toFixed(12) : value, 
                                       name === 'score' ? 'Sidorenko Score' : name
                                     ]}
-                                    labelFormatter={(value) => `G[${i},${j}] = ${typeof value === 'number' ? value.toFixed(4) : value}`}
+                                    labelFormatter={(value) => `G[${i},${j}] = ${typeof value === 'number' ? value.toFixed(8) : value}`}
                                   />
                                   <Line 
                                     type="monotone" 
@@ -777,15 +777,15 @@ function App() {
                                     type="number"
                                     scale="linear"
                                     domain={['dataMin', 'dataMax']}
-                                    tickFormatter={(value) => value.toFixed(3)}
+                                    tickFormatter={(value) => value.toFixed(6)}
                                   />
-                                  <YAxis tickFormatter={(value) => value.toFixed(4)} />
+                                  <YAxis tickFormatter={(value) => value.toFixed(8)} />
                                   <Tooltip 
                                     formatter={(value: any, name: string) => [
-                                      typeof value === 'number' ? value.toFixed(6) : value, 
+                                      typeof value === 'number' ? value.toFixed(12) : value, 
                                       name === 'score' ? 'Sidorenko Score' : name
                                     ]}
-                                    labelFormatter={(value) => `G[${i},${j}] = ${typeof value === 'number' ? value.toFixed(4) : value}`}
+                                    labelFormatter={(value) => `G[${i},${j}] = ${typeof value === 'number' ? value.toFixed(8) : value}`}
                                   />
                                   <Line 
                                     type="monotone" 
@@ -965,7 +965,7 @@ function App() {
                   )}
                   {optimizationProgress.lastImprovement && (
                     <span className="last-improvement">
-                      Last improvement: {optimizationProgress.lastImprovement.toFixed(6)}
+                      Last improvement: {optimizationProgress.lastImprovement.toFixed(12)}
                     </span>
                   )}
                 </div>
@@ -990,7 +990,7 @@ function App() {
               <div className="score-display">
                 <h3>Sidorenko Score</h3>
                 <div className={`score-value ${results.score > 0 ? 'positive' : results.score < 0 ? 'negative' : ''}`}>
-                  {results.score?.toFixed(6) || 'N/A'}
+                  {results.score?.toFixed(12) || 'N/A'}
                 </div>
                 {results.score < 0 && (
                   <div className="counterexample-label">
@@ -1005,19 +1005,19 @@ function App() {
                   <div className="details-grid">
                     <div className="detail-item">
                       <span className="label">Homomorphism Count:</span>
-                      <span className="value">{results.details.hom_count?.toFixed(6) || 'N/A'}</span>
+                      <span className="value">{results.details.hom_count?.toFixed(12) || 'N/A'}</span>
                     </div>
                     <div className="detail-item">
                       <span className="label">Homomorphism Density (t_H_G):</span>
-                      <span className="value">{results.details.t_H_G?.toFixed(6) || 'N/A'}</span>
+                      <span className="value">{results.details.t_H_G?.toFixed(12) || 'N/A'}</span>
                     </div>
                     <div className="detail-item">
                       <span className="label">Edge Density (p):</span>
-                      <span className="value">{results.details.edge_density_p?.toFixed(6) || 'N/A'}</span>
+                      <span className="value">{results.details.edge_density_p?.toFixed(12) || 'N/A'}</span>
                     </div>
                     <div className="detail-item">
                       <span className="label">p^|E(H)|:</span>
-                      <span className="value">{results.details.p_power_edges?.toFixed(6) || 'N/A'}</span>
+                      <span className="value">{results.details.p_power_edges?.toFixed(12) || 'N/A'}</span>
                     </div>
                     {results.details.implementation && (
                       <div className="detail-item">
@@ -1045,7 +1045,7 @@ function App() {
                             <XAxis dataKey="step" />
                             <YAxis />
                             <Tooltip 
-                              formatter={(value: any, name: string) => [value.toFixed(6), name]}
+                              formatter={(value: any, name: string) => [value.toFixed(12), name]}
                               labelFormatter={(step) => `Step: ${step}`}
                             />
                             <Line 
